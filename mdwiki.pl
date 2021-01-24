@@ -11,7 +11,7 @@ use File::Path;
 use utf8;
 use Data::Dumper;
 use URI::Escape;
-use JSON;
+use JSON::PP;
 no warnings;
 *Data::Dumper::qquote = sub {return shift};
 $Data::Dumper::Useperl = 1;
@@ -44,7 +44,8 @@ sub read_config{
     if(-f $configfile){
       print STDERR "Read $configfile\n";
       open(my $fhi, '<:utf8', $configfile);
-      my $json = from_json(join('', <$fhi>));
+      my $jsonsrc = join('', <$fhi>);
+      my $json = decode_json $jsonsrc;
       foreach my $key (keys %$json){
         $CFG{$key} = $json->{$key};
       }
@@ -154,6 +155,21 @@ sub makeloglist{
   print STDERR "Modified: $outfile\n";
 } # sub makelogfile
 
+
+sub maketopics{
+  my($x, $depth) = @_;
+  (defined $depth) or $depth=0;
+  my $id = $x->[0];
+  $id=~/^[-\d._]+$/ or "Invalid ID. Only digits, period, hyphen and minus are allowed.\n"; 
+  foreach my $xx (@$x[1..$#$x]){
+    if(ref $xx eq 'ARRAY'){
+      maketopics($xx, $depth+1);
+    }else{
+      print STDERR '_'x$depth, "$id - $xx\n";
+    }
+  }
+}
+=test
 sub maketopics{
   my($topicfile) = @_;
   $topicfile or $topicfile="topic.txt";
@@ -229,6 +245,7 @@ EOD
     print {$fho} $outtext;
   }
 } # sub maketopics
+=cut
 
 sub makenav{
   (-f "navigation.md") and move "navigation.md", "navigation.md.bak";
@@ -369,6 +386,8 @@ EOD
   }
 }
 no warnings;
+print "WWWW\n";
+maketopics($CFG{topic});
 $DB::single=1;
 
 __DATA__
