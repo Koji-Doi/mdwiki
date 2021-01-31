@@ -1196,6 +1196,10 @@ function readtopics(t){
   }else{
     t.forEach(function(x){
       var id   = x[0];
+      if(id.match(/^[-_.\d]+$/){
+      }else{
+        alert("Invalid id: " + id);
+      }
       var name = x[1];
       var path  = id+"/";
       var topic0 = {"id": id, "name": name, "path": path};

@@ -32,7 +32,7 @@ until(-f $MAINHTML){
 my $LANG = (defined $CFG{lang}) || "ja"; # or "en"
 my %MONTHNAME=(ja=>[map {"${_}tsuki"} 0..12], en=>[qw/x January February March April May June July August September October November December/]);
 my @LOGLIST;
-my @TOPIC;
+my %TOPIC;
 
 # read config file
 sub read_config{
@@ -51,6 +51,7 @@ sub read_config{
       }
     }
   }
+  print Dumper %CFG;
 }
 
 =test
@@ -157,99 +158,60 @@ sub makeloglist{
 
 
 sub maketopics{
-  my($x, $depth) = @_;
+  my($x, $depth, $parent) = @_;
   (defined $depth) or $depth=0;
-  my $id = $x->[0];
-  $id=~/^[-\d._]+$/ or "Invalid ID. Only digits, period, hyphen and minus are allowed.\n"; 
-  foreach my $xx (@$x[1..$#$x]){
-    if(ref $xx eq 'ARRAY'){
-      maketopics($xx, $depth+1);
-    }else{
-      print STDERR '_'x$depth, "$id - $xx\n";
+  (defined $x) or $x = $CFG{topic};
+  foreach my $xx (@$x){
+    (defined $parent) or $parent = 'topic';
+    if(ref $xx->[2] eq 'ARRAY'){
+      maketopics($xx->[2], $depth+1, $parent."/".$xx->[1]);
+    }
+    printf STDERR "%s%s - %s\n", '_' x $depth, $xx->[0], $xx->[1];
+    $xx->[0]=~/^[-\d._]+$/ or print STDERR "Invalid ID. Only digits, period, hyphen and minus are allowed.\n";
+#    my $name_encode = url_encode($xx->[1]);
+     my $id          = $xx->[0];
+     my $path        = "$parent/$xx->[1]";
+#    my $topic0      = {id=>$xx->[0], name=>$xx->[1], esc=>$name_encode, parent=>$parent, url=>"$HTMLFILE#!$parent/${name_encode}/index.md"};
+    my $topic0      = {id=>$xx->[0], name=>$xx->[1], path=>$path, parent=>$parent, url=>"$HTMLFILE#!topic/$id/index.md"};
+    push(@{$TOPIC{$parent}}, $topic0); 
+  }
+
+  # make topic file in subdirs of 'topic/'
+  foreach my $p (keys %TOPIC){
+    foreach my $topic (@{$TOPIC{$p}}){
+      #my $outdir = $topic->{parent}."/".$topic->{name};
+      #my $outdir = $topic->{parent}."/".$topic->{id};
+      my $outdir = "topic/$topic->{id}";
+      (-d $outdir) or mkpath($outdir) or die "Failed to modify $outdir.";
+      my $topicindex = "$outdir/index.md";
+      if(-f $topicindex){
+      }else{
+        open(my $fho, '>:utf8', $topicindex) or die "Failed to create $topicindex";
+        my @cont = template('topic.md');
+        print {$fho} join("\n", @cont);
+      }
+    }
+  }
+ 
+  return(0);
+}
+
+sub listtopics{
+  my($parent) = @_;
+  unless(defined $parent){
+    foreach my $p (keys %TOPIC){
+      my $topic = $TOPIC{$p};
+      print "---\n", Dumper $topic;
     }
   }
 }
-=test
-sub maketopics{
-  my($topicfile) = @_;
-  $topicfile or $topicfile="topic.txt";
-  @TOPIC =({name=>'topic', parent=>0, dir=>'topic', url=>${MAINHTML}.'#!topic/'});
-  my @src;
-  my @lasttopic;
-  my $ind=0;
-  my $i=0;
-  my @topics;
-
-  ### check topic structure
-  if(-f $topicfile){
-    mkpath($TOPIC[0]{dir});
-    open(my $fhi, '<:utf8', $topicfile);
-    while(<$fhi>){
-      s/[\n\r]*$//;
-      /\S/ or next;
-      push(@topics, $_);
-    }
-  }else{
-    print STDERR "$topicfile not found\n";
-    @topics = $CFG{topic};
-  }
-
-  open(my $fho_root, '>:utf8', "$TOPIC[0]{dir}/index.md");
-  print {$fho_root} << 'EOD';
-# Topics
-
-EOD
-
-  foreach (@topics){
-    $i++;
-    my($ind0, $txt) = /(\s*)(.*)/;
-    my $ind=length($ind0);
-    my $txt_esc = url_encode($txt); #uri_escape_utf8($txt);
-
-    $lasttopic[$ind] = {n=>$., name=>$txt, esc=>$txt_esc};
-    $TOPIC[$i]       = {n=>$., name=>$txt, esc=>$txt_esc, parent=>($ind==0)? 0 : $lasttopic[$ind-1]{n}};
-    $TOPIC[$i]{dir}  = "$TOPIC[$TOPIC[$i]{parent}]{dir}/$TOPIC[$i]{name}";
-    $TOPIC[$i]{url}  = "$TOPIC[$TOPIC[$i]{parent}]{url}$TOPIC[$i]{esc}/";
-
-    print {$fho_root} ' ' x $ind, "- [$txt]($TOPIC[$i]{url})\n";
-  }
-
-  ### topic -> index
-  for($i=1; $i<=$#TOPIC; $i++){
-    my $dir = $TOPIC[$i]{dir};
-    (-d $dir) or mkdir $dir or die "Failed to make $dir";
-    my $indexfile = "$dir/index.md";
-    my @intext;
-#    my @outtext;
-    my $tag = '';
-    if(-e $indexfile){ # existing file
-      copy $indexfile, "$indexfile.bak";
-      open(my $fhi, '<:utf8', $indexfile);
-      @intext = <$fhi>;
-    }else{ # new file
-      @intext = template('topic.md', {topicname=>$TOPIC[$i]{name}});
-    }
-    open(my $fho, '>:utf8', $indexfile) or die "Cannot create $indexfile";
-    print STDERR "Modified: $indexfile\n";
-    my $outtext = join('', @intext);
-    my $loglist='';
-    foreach my $logfile (@LOGLIST){
-      # check links to topic files from each log file
-      my $hir = $TOPIC[$i]{dir};
-      $hir=~s{topic/}{};
-      if(exists $logfile->{topics}{$hir}){
-        $loglist .= sprintf("* [%s (%s)](${MAINHTML}#!%s)\n", $logfile->{title}||'', $logfile->{file}, $logfile->{file});
-      }
-    }
-    $outtext=~s{(<!--\s+@@@\s+log\s+list\s+start\s*-->).*(<!-- @@@\s+log\s+list\s+end\s*-->)}{"$1\n\n$loglist\n$2"}se;    
-    print {$fho} $outtext;
-  }
-} # sub maketopics
-=cut
 
 sub makenav{
-  (-f "navigation.md") and move "navigation.md", "navigation.md.bak";
-  open(my $fho, '>:utf8', "navigation.md") or die;
+print "html=$HTMLFILE.\n";
+  my $navfile = $HTMLFILE;
+  $navfile=~s{\.html$}{-navigation.md};
+  (-f $navfile) and move $navfile, "$navfile.bak";
+  open(my $fho, '>:utf8', $navfile) or die;
   printf {$fho} "[gimmick:Theme (inverse: true)](cerulean)\n\n# %s\n\n", $CFG{sitename}||'MDWiki Site';
 
   my @menubar = (defined $CFG{menubar}) ? @{$CFG{menubar}} : ('month', 'topic');
@@ -268,10 +230,11 @@ sub makenav{
       # topic
       my $lv=0;
       print {$fho} "\n[Topics]()\n\n";
-      for(my $i=0; $i<=$#TOPIC; $i++){
-        print "$i: $TOPIC[$i]{url}.\n";
-        my $url  = $TOPIC[$i]{url};
-        my $name = $TOPIC[$i]{name};
+#      for(my $i=0; $i<=$#TOPIC; $i++){
+      for(my $i=0; $i<=$#{$TOPIC{topic}}; $i++){
+        print "$i: $TOPIC{topic}[$i]{url}.\n";
+        my $url  = $TOPIC{topic}[$i]{url};
+        my $name = $TOPIC{topic}[$i]{name};
         $url=~s{/[^/]*$}{};
         my(@f)  = split('/', $url);
         my $lv0 = scalar @f;
@@ -295,6 +258,11 @@ sub makenav{
 my @data;
 sub template{
   my($tag, $opt) = @_;
+
+  # overwrite @data with 'template/*'
+
+  # overwrite @data with 'template/$HTMLFILE/*'
+
   (defined $data[0]) or @data = <DATA>;
   my @data1 = @data;
   my @res;
@@ -350,6 +318,7 @@ EOD
 
 } else{
   $HTMLFILE = $ARGV[1] || $MAINHTML;
+  $TOPIC{''} = [{id=>'', name=>'topic', path=>'topic', url=>"$HTMLFILE#!topic/index.md"}];
   read_config($HTMLFILE);
   
   if ($ARGV[0] eq 'newlog') {
@@ -382,6 +351,7 @@ EOD
     print STDERR "Make topic files, index files etc. for $HTMLFILE\n";
     makeloglist();
     maketopics();
+    listtopics();
     makenav();
   }
 }
