@@ -1187,6 +1187,30 @@ Parser.prototype.tok = function() {
  */
 
 var topic = [];
+function fdate(d, format){
+// d : Date object
+  var formatted;
+
+  if(format=="iso"){
+    formatted = d.toISOString();
+  }else if(format=="ja"){
+formatted = `
+${d.getFullYear()}年
+${(d.getMonth()+1).toString().padStart(2, '0')}月
+${d.getDate().toString().padStart(2, '0')}日
+`.replace(/\n|\r/g, '');
+  }else if(format=="ja_gengo"){
+    formatted = (new Intl.DateTimeFormat('ja-JP-u-ca-japanese', {era: 'long'}).format(d));
+  }else{
+formatted = `
+${d.getFullYear()}-
+${(d.getMonth()+1).toString().padStart(2, '0')}-
+${d.getDate().toString().padStart(2, '0')}
+`.replace(/\n|\r/g, '');
+  }
+
+  return(formatted);
+}
 
 function readtopics(t){
 // t: $.md.config.topic
@@ -1196,13 +1220,13 @@ function readtopics(t){
   }else{
     t.forEach(function(x){
       var id   = x[0];
-      if(id.match(/^[-_.\d]+$/){
+      if(id.match(/^[-_.\d]+$/)){
       }else{
         alert("Invalid id: " + id);
       }
-      var name = x[1];
-      var path  = id+"/";
-      var topic0 = {"id": id, "name": name, "path": path};
+      var name    = x[1];
+      var path    = id+"/";
+      var topic0  = {"id": id, "name": name, "path": path};
       if(typeof(x[2])!="undefined"){
         topic0.child = readtopics(x[2]);
         topic0.child.map(function(x){
@@ -1222,16 +1246,31 @@ function replace_macro(txt0){
   txt  = txt1[0];
   if(txt=="date" || txt=="datetime"){
     var d = new Date();
-    return (txt=="date") ? d.toDateString() : d.toISOString(); 
-  }else if(txt=="filename" || txt=="url" || txt=="home" || txt=="t"){
+    return (txt=="date") ? fdate(d) : fdate(d, "iso"); 
+  }else if(txt=="filename" || txt=="url" || txt=="home" || txt=="t" || txt=="t_p" || txt=="t_pl"){
     var f = getfilename(); // url(without #! parameters), htmlfilename
-    if(txt=="t"){
+    if(txt=="t" || txt=="t_p" || txt=="t_pl"){
       if(typeof(topic[0])=="undefined"){
         topic = readtopics($.md.config.topic);
       }
       var x = topic.filter(function(x){return(x.id==txt1[1] ? true : false)})[0];
-      return('<a href="' + f[0] + '#!topic/' + x.path + 'index.md">' + x.name  + '</a>'); 
+      if(txt=="t"){
+        return('<a href="' + f[0] + '#!topic/' + x.id + '/index.md">' + x.name  + '</a>');
+      }else if(txt=="t_p"){
+        var topicnames = [];
+        x.path.split("/").map(function(xx){
+          var parent_topic =topic.filter(function(x){return(x.id==xx ? true : false)});
+          if(parent_topic.length>0){
+            var p_t = parent_topic[0];
+            if(p_t.name.search(/\w/)>=0){
+              topicnames.push('<a href="' + f[0] + '#!topic/' + p_t.id + '/index.md">' + p_t.name + '</a>');
+            }
+          }
+        });
+        return(topicnames.join(' - ')); // + '<a href="' + f[0] + '#!topic/' + x.id   + '/index.md">' + x.name   + '</a>');
+      } 
     }
+
     return (txt=="filename") ? f[1]
           :(txt=="url")      ? f[0]
           :(txt=="home")     ? '<a href="' + f[0] + '">home</a>' : txt;
@@ -1253,8 +1292,8 @@ function escape(html, encode) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
-  return html1.replace(/{{(.*?)}}/g, function(full, txt){return replace_macro(txt)}); // 210109 kd
-
+//  return html1.replace(/{{(.*?)}}/g, function(full, txt){return replace_macro(txt)}); // 210109 kd
+  return html1;
 }
 
 function replace(regex, opt) {
@@ -1338,7 +1377,8 @@ function marked(src, opt, callback) {
   }
   try {
     if (opt) opt = merge({}, marked.defaults, opt);
-    return Parser.parse(Lexer.lex(src, opt), opt);
+    src1 = src.replace(/{{(.*?)}}/g, function(full, txt){return replace_macro(txt)});
+    return Parser.parse(Lexer.lex(src1, opt), opt);
   } catch (e) {
     e.message += '\nPlease report this to https://github.com/chjj/marked.';
     if ((opt || marked.defaults).silent) {
@@ -4338,6 +4378,7 @@ function googlemapsReady() {
         }
     };
     $.md.registerGimmick(yumlGimmick);
+console.log("js end");
 
 }(jQuery));
 </script>

@@ -33,6 +33,7 @@ my $LANG = (defined $CFG{lang}) || "ja"; # or "en"
 my %MONTHNAME=(ja=>[map {"${_}tsuki"} 0..12], en=>[qw/x January February March April May June July August September October November December/]);
 my @LOGLIST;
 my %TOPIC;
+my %TOPICID2LOG;
 
 # read config file
 sub read_config{
@@ -51,19 +52,36 @@ sub read_config{
       }
     }
   }
-  print Dumper %CFG;
 }
 
-=test
-if(-f "mdwiki.cfg"){
-  open(my $fhi, '<:utf8', "mdwiki.cfg");
+sub replace_file{
+  my($filename, @par) = @_;
+  unshift(@par, undef);
+# replace lines of $filename after $from and before $to with $cont.
+# $par[$i] : [$from, $to, $cont]
+# $from, $to: regexp to match border lines
+# $cont: text to be used for replace
+  my $origfile = "$filename.bak";
+  copy $filename, $origfile;
+  open(my $fhi, '<:utf8', $origfile) or die;
+  open(my $fho, '>:utf8', $filename) or die;
+  
+  map {$par[$_][2]=~s/[\n\r]+$//; $par[$_][2].="\n";} 1..$#par;
+  my $replace=0;
   while(<$fhi>){
-    s/[\n\r]*$//;
-    my($k,$v) = /(\w+)\s*:\s*(.*)/;
-    $CFG{$k}  = $v;
-  }
+    for(my $i=1; $i<=$#par; $i++){
+      if(/$par[$i][0]/ and $replace==0){ # from
+        print {$fho} "$_\n$par[$i][2]\n";
+        $replace = $i;
+      }elsif(/$par[$i][1]/){ # to
+        $replace = 0;
+      }
+    }
+    if($replace==0){
+      print {$fho} $_;
+    }
+  } 
 }
-=cut
 
 sub makefilename{
   my($filename, $n)=@_; # test_{}.txt or test_*.txt
@@ -84,6 +102,7 @@ sub makeloglist{
   my %year_month;
   # check logfile dirs, update @LOGLIST
   undef @LOGLIST;
+  undef %TOPICID2LOG;
   foreach my $dir_year (sort grep {/^\d{4}$/ and -d $_} <*>) {
     foreach my $dir_month (sort grep {/^\d/ and -d $_} <${dir_year}/*>) {
       open(my $fho, '>:utf8', "${dir_month}/index.md");
@@ -97,24 +116,33 @@ sub makeloglist{
         open(my $fhi, '<:utf8', $file) or die "missed $file";
         while(<$fhi>){
           s/[\n\r]*$//;
-          $logdata->{title} = $logdata->{title} || $_;
+          my $url;
+          unless($logdata->{title}){
+            $logdata->{title} = $_;
+            $logdata->{title}=~s/^[\s#]*//;
+            my $title1=$logdata->{title};
+            $title1=~s/^\s*#\s*//;
+            $url = "[$title1 ($file)](${MAINHTML}#!$file)";
+            $logdata->{url} = $url;
+          }
           if(/<!-- @@@ (topic|data) start -->/ .. /<!-- @@@ (topic|data) end -->/){
-            if(my($topic) = m{\(.*#!topic/(.*)\)}){
-              $topic=~s!/(index\.md)?$!!;
-              $topic=~s/%20/ /g;
+            my($topic0, $topic1) = m[(?:#!topic/(\d+)|{{t\|(\d+)}})];
+            if(my $tid = $topic0 || $topic1){
+              #$topic=~s!/(index\.md)?$!!;
+              #$topic=~s/%20/ /g;
               #$topic = url_decode($topic);
-              $logdata->{topics}{$topic}++;
+              $logdata->{topics}{$tid}++;
+              push(@{$TOPICID2LOG{$tid}}, $logdata);
             }
           }
         }
         close $fhi;
-        $logdata->{title}=~s/^[\s#]*//;
         
         push(@LOGLIST, $logdata);
         $year_month{$year}{$month}++;
         my $title1=$logdata->{title};
         $title1=~s/^\s*#\s*//;
-        print {$fho} "* [$title1 ($file)](${MAINHTML}#!$file)\n";        
+        print {$fho} "* $logdata->{url}\n";        
       }
       close $fho;
     }
@@ -135,7 +163,7 @@ sub makeloglist{
       print {$fho2} "# ${year_mon}\n\n";
       foreach my $log (@LOGLIST) {
         if ($log->{year}==$year and $log->{month}==$month) {
-          print {$fho2} "* $log->{file}\n";
+          print {$fho2} "* $log->{url}\n";
         }
       }
       close $fho2;              # list by each month
@@ -166,12 +194,11 @@ sub maketopics{
     if(ref $xx->[2] eq 'ARRAY'){
       maketopics($xx->[2], $depth+1, $parent."/".$xx->[1]);
     }
-    printf STDERR "%s%s - %s\n", '_' x $depth, $xx->[0], $xx->[1];
+    #printf STDERR "%s%s - %s\n", '_' x $depth, $xx->[0], $xx->[1];
     $xx->[0]=~/^[-\d._]+$/ or print STDERR "Invalid ID. Only digits, period, hyphen and minus are allowed.\n";
 #    my $name_encode = url_encode($xx->[1]);
-     my $id          = $xx->[0];
-     my $path        = "$parent/$xx->[1]";
-#    my $topic0      = {id=>$xx->[0], name=>$xx->[1], esc=>$name_encode, parent=>$parent, url=>"$HTMLFILE#!$parent/${name_encode}/index.md"};
+    my $id          = $xx->[0];
+    my $path        = "$parent/$xx->[1]";
     my $topic0      = {id=>$xx->[0], name=>$xx->[1], path=>$path, parent=>$parent, url=>"$HTMLFILE#!topic/$id/index.md"};
     push(@{$TOPIC{$parent}}, $topic0); 
   }
@@ -184,11 +211,22 @@ sub maketopics{
       my $outdir = "topic/$topic->{id}";
       (-d $outdir) or mkpath($outdir) or die "Failed to modify $outdir.";
       my $topicindex = "$outdir/index.md";
+      my $logs="";
+      foreach my $log (@{$TOPICID2LOG{$topic->{id}}}){
+        $logs .= "* $log->{url}\n";
+      }
       if(-f $topicindex){
+        replace_file($topicindex, 
+          ['<!-- @@@ log list start -->',     '<!-- @@@ log list end -->',     $logs], 
+          ['<!-- @@@ parent topic start -->', '<!-- @@@ parent topic end -->', "XXX"]
+        );
       }else{
         open(my $fho, '>:utf8', $topicindex) or die "Failed to create $topicindex";
-        my @cont = template('topic.md');
-        print {$fho} join("\n", @cont);
+        my @cont = template('topic.md', {topicname=>$topic->{name}});
+        foreach my $cont (@cont){
+          print {$fho} $cont;
+          ($cont=~/<!-- @@@ log list start -->/) and print {$fho} "$logs\n";
+        }
       }
     }
   }
@@ -207,7 +245,6 @@ sub listtopics{
 }
 
 sub makenav{
-print "html=$HTMLFILE.\n";
   my $navfile = $HTMLFILE;
   $navfile=~s{\.html$}{-navigation.md};
   (-f $navfile) and move $navfile, "$navfile.bak";
@@ -232,7 +269,6 @@ print "html=$HTMLFILE.\n";
       print {$fho} "\n[Topics]()\n\n";
 #      for(my $i=0; $i<=$#TOPIC; $i++){
       for(my $i=0; $i<=$#{$TOPIC{topic}}; $i++){
-        print "$i: $TOPIC{topic}[$i]{url}.\n";
         my $url  = $TOPIC{topic}[$i]{url};
         my $name = $TOPIC{topic}[$i]{name};
         $url=~s{/[^/]*$}{};
@@ -330,7 +366,7 @@ EOD
     open(my $fho, '>:utf8', $outfile) or die "Failed to create $outfile";
     print STDERR "Created new log template file: $outfile\n";
     $lt = localtime;
-    my @d = template('log.md', {date=>$lt->ymd()});
+    my @d = template('log.md', {date=>$lt->ymd(), tid=>''});
     map {print {$fho} $_} @d;
     close $fho;
     my $newest_symlink = "newestlog.md";
@@ -351,12 +387,11 @@ EOD
     print STDERR "Make topic files, index files etc. for $HTMLFILE\n";
     makeloglist();
     maketopics();
-    listtopics();
+    #listtopics();
     makenav();
   }
 }
 no warnings;
-print "WWWW\n";
 maketopics($CFG{topic});
 $DB::single=1;
 
@@ -367,7 +402,7 @@ __DATA__
 <div style="margin-top: -10em; margin-bottom: 2em; text-align:right;">
 <!-- @@@ topic start -->
 
-[topic](#!topic/)
+Topic: {{t|0000}}
 First Edition: {{date}}
 Last Modified: {{date}}
 
@@ -384,7 +419,7 @@ Last Modified: {{date}}
 @@ topic.md
 <!-- @@@ title start -->
 
-# Topic {{topicname}}
+# {{topicname}}
 <!-- @@@ title end -->
 
 <!-- @@@ parent topic start -->
