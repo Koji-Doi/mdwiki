@@ -4124,7 +4124,8 @@ function googlemapsReady() {
         { name: 'slate', url: 'netdna.bootstrapcdn.com/bootswatch/3.0.0/slate/bootstrap.min.css' },
         { name: 'spacelab', url: 'netdna.bootstrapcdn.com/bootswatch/3.0.0/spacelab/bootstrap.min.css' },
         { name: 'united', url: 'netdna.bootstrapcdn.com/bootswatch/3.0.0/united/bootstrap.min.css' },
-        { name: 'yeti', url: 'netdna.bootstrapcdn.com/bootswatch/3.0.2/yeti/bootstrap.min.css' }
+        { name: 'yeti', url: 'netdna.bootstrapcdn.com/bootswatch/3.0.2/yeti/bootstrap.min.css' },
+        { name: 'mytheme', url: 'kojidoi.home-server.jp/~koji/mdwiki-mod2/mdwiki/mdwiki-bootstrap.min.css'} /* KD 210219 */
     ];
     var useChooser = false;
     var themeChooserGimmick = {
@@ -4393,12 +4394,15 @@ window.onload=function(){
 //  var extra_css = window.location.href.split('/').pop();
   var extra_css = getfilename()[0];
   extra_css     = extra_css.replace(/\.html/, ".css");
+  //extra_css="http://kojidoi.home-server.jp/~koji/mdwiki-mod2/mdwiki/mdwiki-debug.css";
   console.log("Try to read css named "+extra_css);
   css.setAttribute("href", extra_css); // Read mdwiki-debug.css here
   try{
     document.getElementsByTagName("head")[0].appendChild(css);
   }
-  catch(e){console.log(e)}
+  catch(e){
+    console.log("WW",e)
+  }
 }
 </script>
 </head>
@@ -4410,5 +4414,8 @@ window.onload=function(){
 
     <div id="md-all">
     </div>
+<script type="text/javascript">
+window.onload;
+</script>
 </body>
 </html>
